@@ -287,7 +287,7 @@ class GameUI {
     
     const b = this.board.brd;
     let fen = '';
-    for(let r = 0; r < 8; r++){
+    for(let r = 7; r >= 0; r--){
       let empty = 0;
       for(let f = 0; f < 8; f++){
         const sq = s88(r, f);
@@ -301,7 +301,7 @@ class GameUI {
         }
       }
       if(empty) fen += empty;
-      if(r < 7) fen += '/';
+      if(r > 0) fen += '/';
     }
     fen += this.board.sd === WHITE ? ' w' : ' b';
     
