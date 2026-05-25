@@ -168,47 +168,29 @@ doMove(m){
     
     this.sStk.push({cas: this.cas, ep: this.epSq, hmc: this.hmc, hKey: this.hKey, pc, pc0: this.pieceCount[0], pc1: this.pieceCount[1]});
     
-    // 1. ALWAYS remove the moving piece from its source square first
-    this.removePiece(f, pc);
     this.brd[f] = EMPTY;
-    
-    // 2. If it's a capture, ALWAYS remove the captured piece from its square first
-    if (cap && flag !== FL_E) {
-      this.removePiece(t, cap);
-    }
     
     if(flag === FL_E){
       const es = this.sd === WHITE ? t - 16 : t + 16;
-      const ep = this.brd[es];
       this.brd[es] = EMPTY;
       this.brd[t] = pc;
-      
-      this.removePiece(es, ep);
-      this.addPiece(t, pc);
     }
     else if(flag === FL_C){
       this.brd[t] = pc;
       let rf, rt;
       if(t > f){ rf = t + 1; rt = t - 1; }
       else{ rf = t - 2; rt = t + 1; }
-      const rook = this.brd[rf];
-      this.brd[rt] = rook;
+      this.brd[rt] = this.brd[rf];
       this.brd[rf] = EMPTY;
-      
-      this.addPiece(t, pc);        
-      this.removePiece(rf, rook);  
-      this.addPiece(rt, rook);     
     }
     else if(prom){
       this.brd[t] = prom;
-      // Do NOT remove 'pc' from 't'. It was already removed from 'f'.
-      this.addPiece(t, prom);      // Just add the new promoted piece
       this.pieceCount[this.sd]++;
     }
     else{
       this.brd[t] = pc;
-      this.addPiece(t, pc);
     }
+    
     
     if(cap && pT(cap) !== PAWN){
       this.pieceCount[this.sd ^ 1]--;
@@ -231,40 +213,26 @@ doMove(m){
     const f = mF(m), t = mT(m), cap = mC(m), prom = mP(m), flag = mFL(m);
     const st = this.sStk.pop();
     
-    // 1. Clean up the destination square pieces from pieceList first
-    if (prom) {
-      this.removePiece(t, prom);
-    } else {
-      this.removePiece(t, st.pc);
-    }
-    
     this.brd[f] = st.pc;
-    this.addPiece(f, st.pc); // Return moving piece to source
     
     if(flag === FL_E){
       this.brd[t] = EMPTY;
       const es = this.sd === WHITE ? t - 16 : t + 16;
-      const epPc = mkP(this.sd ^ 1, PAWN);
-      this.brd[es] = epPc;
-      this.addPiece(es, epPc);
+      this.brd[es] = mkP(this.sd ^ 1, PAWN);
     }
     else if(flag === FL_C){
       this.brd[t] = EMPTY;
       let rf, rt;
       if(t > f){ rf = t + 1; rt = t - 1; }
       else{ rf = t - 2; rt = t + 1; }
-      const rook = this.brd[rt];
-      this.brd[rf] = rook;
+      this.brd[rf] = this.brd[rt];
       this.brd[rt] = EMPTY;
-      
-      this.removePiece(rt, rook);  
-      this.addPiece(rf, rook);     
     }
-    else {
+    else if(prom){
       this.brd[t] = cap || EMPTY;
-      if(cap) {
-        this.addPiece(t, cap); // Return standard captured piece to board state lists
-      }
+    }
+    else{
+      this.brd[t] = cap || EMPTY;
     }
     
     if(pT(st.pc) === KING) this.kSq[this.sd] = f;

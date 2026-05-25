@@ -12,133 +12,133 @@ class MoveGen {
     const mv = [];
     const us = board.sd, th = us ^ 1;
     const pawnCaptures = us === WHITE ? MoveGen.WPAWN_CAPTURES : MoveGen.BPAWN_CAPTURES;
+    const pawnDir = us === WHITE ? 16 : -16;
+    const pawnStartRank = us === WHITE ? 1 : 6;
+    const pawnPromoteRank = us === WHITE ? 7 : 0;
     
-    // Generate pawn moves
-    for(const sq of board.pieceList[us][PAWN]){
-      const dir = us === WHITE ? 16 : -16;
-      const sr = us === WHITE ? 1 : 6;
-      const pr = us === WHITE ? 7 : 0;
-      const fw = sq + dir;
+    // === FAST ITERATION: Scan board, but with early continue for optimization ===
+    // This is O(128) but guaranteed correct - safe for legal move validation
+    for(let sq = 0; sq < 128; sq++){
+      if(!onB(sq)) continue;
+      const p = board.brd[sq];
+      if(!p || pC(p) !== us) continue;
       
-      if(onB(fw) && !board.brd[fw]){
-        if(rk(fw) === pr){
-          mv.push(mkM(sq, fw, 0, mkP(us, QUEEN), FL_N));
-          mv.push(mkM(sq, fw, 0, mkP(us, ROOK), FL_N));
-          mv.push(mkM(sq, fw, 0, mkP(us, BISHOP), FL_N));
-          mv.push(mkM(sq, fw, 0, mkP(us, KNIGHT), FL_N));
-        }
-        else if(!capsOnly){
-          mv.push(mkM(sq, fw, 0, 0, FL_N));
-          
-          const dd = sq + dir * 2;
-          if(rk(sq) === sr && !board.brd[dd])
-            mv.push(mkM(sq, dd, 0, 0, FL_P));
-        }
-      }
+      const ty = pT(p);
       
-      for(const cd2 of pawnCaptures){
-        const t = sq + cd2;
-        if(!onB(t)) continue;
-        const cap = board.brd[t];
-        if(cap && pC(cap) === th){
-          if(rk(t) === pr){
-            mv.push(mkM(sq, t, cap, mkP(us, QUEEN), FL_N));
-            mv.push(mkM(sq, t, cap, mkP(us, ROOK), FL_N));
-            mv.push(mkM(sq, t, cap, mkP(us, BISHOP), FL_N));
-            mv.push(mkM(sq, t, cap, mkP(us, KNIGHT), FL_N));
-          }else{
-            mv.push(mkM(sq, t, cap, 0, FL_N));
+      if(ty === PAWN){
+        const fw = sq + pawnDir;
+        if(onB(fw) && !board.brd[fw]){
+          if(rk(fw) === pawnPromoteRank){
+            mv.push(mkM(sq, fw, 0, mkP(us, QUEEN), FL_N));
+            mv.push(mkM(sq, fw, 0, mkP(us, ROOK), FL_N));
+            mv.push(mkM(sq, fw, 0, mkP(us, BISHOP), FL_N));
+            mv.push(mkM(sq, fw, 0, mkP(us, KNIGHT), FL_N));
+          }
+          else if(!capsOnly){
+            mv.push(mkM(sq, fw, 0, 0, FL_N));
+            const dd = sq + pawnDir * 2;
+            if(rk(sq) === pawnStartRank && onB(dd) && !board.brd[dd])
+              mv.push(mkM(sq, dd, 0, 0, FL_P));
           }
         }
         
-        if(t === board.epSq)
-          mv.push(mkM(sq, t, mkP(th, PAWN), 0, FL_E));
-      }
-    }
-    
-    // Generate knight moves
-    for(const sq of board.pieceList[us][KNIGHT]){
-      for(const d of MoveGen.N_D){
-        const t = sq + d;
-        if(!onB(t)) continue;
-        const tp = board.brd[t];
-        if(tp && pC(tp) === us) continue;
-        if(capsOnly && !tp) continue;
-        mv.push(mkM(sq, t, tp, 0, FL_N));
-      }
-    }
-    
-    // Generate bishop moves
-    for(const sq of board.pieceList[us][BISHOP]){
-      for(const d of MoveGen.B_D){
-        let t = sq + d;
-        while(onB(t)){
-          const tp = board.brd[t];
-          if(tp){
-            if(pC(tp) !== us) mv.push(mkM(sq, t, tp, 0, FL_N));
-            break;
+        for(const cd of pawnCaptures){
+          const t = sq + cd;
+          if(!onB(t)) continue;
+          const cap = board.brd[t];
+          if(cap && pC(cap) === th){
+            if(rk(t) === pawnPromoteRank){
+              mv.push(mkM(sq, t, cap, mkP(us, QUEEN), FL_N));
+              mv.push(mkM(sq, t, cap, mkP(us, ROOK), FL_N));
+              mv.push(mkM(sq, t, cap, mkP(us, BISHOP), FL_N));
+              mv.push(mkM(sq, t, cap, mkP(us, KNIGHT), FL_N));
+            }else{
+              mv.push(mkM(sq, t, cap, 0, FL_N));
+            }
           }
-          if(!capsOnly) mv.push(mkM(sq, t, 0, 0, FL_N));
-          t += d;
+          if(t === board.epSq)
+            mv.push(mkM(sq, t, mkP(th, PAWN), 0, FL_E));
         }
       }
-    }
-    
-    // Generate rook moves
-    for(const sq of board.pieceList[us][ROOK]){
-      for(const d of MoveGen.R_D){
-        let t = sq + d;
-        while(onB(t)){
+      else if(ty === KNIGHT){
+        for(const d of MoveGen.N_D){
+          const t = sq + d;
+          if(!onB(t)) continue;
           const tp = board.brd[t];
-          if(tp){
-            if(pC(tp) !== us) mv.push(mkM(sq, t, tp, 0, FL_N));
-            break;
-          }
-          if(!capsOnly) mv.push(mkM(sq, t, 0, 0, FL_N));
-          t += d;
+          if(tp && pC(tp) === us) continue;
+          if(capsOnly && !tp) continue;
+          mv.push(mkM(sq, t, tp, 0, FL_N));
         }
       }
-    }
-    
-    // Generate queen moves
-    for(const sq of board.pieceList[us][QUEEN]){
-      for(const d of [...MoveGen.B_D, ...MoveGen.R_D]){
-        let t = sq + d;
-        while(onB(t)){
-          const tp = board.brd[t];
-          if(tp){
-            if(pC(tp) !== us) mv.push(mkM(sq, t, tp, 0, FL_N));
-            break;
+      else if(ty === BISHOP){
+        for(const d of MoveGen.B_D){
+          let t = sq + d;
+          while(onB(t)){
+            const tp = board.brd[t];
+            if(tp){
+              if(pC(tp) !== us) mv.push(mkM(sq, t, tp, 0, FL_N));
+              break;
+            }
+            if(!capsOnly) mv.push(mkM(sq, t, 0, 0, FL_N));
+            t += d;
           }
-          if(!capsOnly) mv.push(mkM(sq, t, 0, 0, FL_N));
-          t += d;
         }
       }
-    }
-    
-    // Generate king moves
-    const kingSq = board.kSq[us];
-    for(const d of MoveGen.K_D){
-      const t = kingSq + d;
-      if(!onB(t)) continue;
-      const tp = board.brd[t];
-      if(tp && pC(tp) === us) continue;
-      if(capsOnly && !tp) continue;
-      mv.push(mkM(kingSq, t, tp, 0, FL_N));
+      else if(ty === ROOK){
+        for(const d of MoveGen.R_D){
+          let t = sq + d;
+          while(onB(t)){
+            const tp = board.brd[t];
+            if(tp){
+              if(pC(tp) !== us) mv.push(mkM(sq, t, tp, 0, FL_N));
+              break;
+            }
+            if(!capsOnly) mv.push(mkM(sq, t, 0, 0, FL_N));
+            t += d;
+          }
+        }
+      }
+      else if(ty === QUEEN){
+        for(const d of [...MoveGen.B_D, ...MoveGen.R_D]){
+          let t = sq + d;
+          while(onB(t)){
+            const tp = board.brd[t];
+            if(tp){
+              if(pC(tp) !== us) mv.push(mkM(sq, t, tp, 0, FL_N));
+              break;
+            }
+            if(!capsOnly) mv.push(mkM(sq, t, 0, 0, FL_N));
+            t += d;
+          }
+        }
+      }
+      else if(ty === KING){
+        for(const d of MoveGen.K_D){
+          const t = sq + d;
+          if(!onB(t)) continue;
+          const tp = board.brd[t];
+          if(tp && pC(tp) === us) continue;
+          if(capsOnly && !tp) continue;
+          mv.push(mkM(sq, t, tp, 0, FL_N));
+        }
+      }
     }
     
     // Generate castling moves
-    if(!capsOnly && !board.isAttacked(kingSq, th)){
-      if(us === WHITE){
-        if((board.cas & CWK) && !board.brd[s88(0,5)] && !board.brd[s88(0,6)] && board.brd[s88(0,7)] === mkP(WHITE, ROOK) && !board.isAttacked(s88(0,5), BLACK) && !board.isAttacked(s88(0,6), BLACK))
-          mv.push(mkM(kingSq, s88(0,6), 0, 0, FL_C));
-        if((board.cas & CWQ) && !board.brd[s88(0,3)] && !board.brd[s88(0,2)] && !board.brd[s88(0,1)] && board.brd[s88(0,0)] === mkP(WHITE, ROOK) && !board.isAttacked(s88(0,3), BLACK) && !board.isAttacked(s88(0,2), BLACK))
-          mv.push(mkM(kingSq, s88(0,2), 0, 0, FL_C));
-      }else{
-        if((board.cas & CBK) && !board.brd[s88(7,5)] && !board.brd[s88(7,6)] && board.brd[s88(7,7)] === mkP(BLACK, ROOK) && !board.isAttacked(s88(7,5), WHITE) && !board.isAttacked(s88(7,6), WHITE))
-          mv.push(mkM(kingSq, s88(7,6), 0, 0, FL_C));
-        if((board.cas & CBQ) && !board.brd[s88(7,3)] && !board.brd[s88(7,2)] && !board.brd[s88(7,1)] && board.brd[s88(7,0)] === mkP(BLACK, ROOK) && !board.isAttacked(s88(7,3), WHITE) && !board.isAttacked(s88(7,2), WHITE))
-          mv.push(mkM(kingSq, s88(7,2), 0, 0, FL_C));
+    if(!capsOnly){
+      const kingSq = board.kSq[us];
+      if(!board.isAttacked(kingSq, th)){
+        if(us === WHITE){
+          if((board.cas & CWK) && !board.brd[s88(0,5)] && !board.brd[s88(0,6)] && board.brd[s88(0,7)] === mkP(WHITE, ROOK) && !board.isAttacked(s88(0,5), BLACK) && !board.isAttacked(s88(0,6), BLACK))
+            mv.push(mkM(kingSq, s88(0,6), 0, 0, FL_C));
+          if((board.cas & CWQ) && !board.brd[s88(0,3)] && !board.brd[s88(0,2)] && !board.brd[s88(0,1)] && board.brd[s88(0,0)] === mkP(WHITE, ROOK) && !board.isAttacked(s88(0,3), BLACK) && !board.isAttacked(s88(0,2), BLACK))
+            mv.push(mkM(kingSq, s88(0,2), 0, 0, FL_C));
+        }else{
+          if((board.cas & CBK) && !board.brd[s88(7,5)] && !board.brd[s88(7,6)] && board.brd[s88(7,7)] === mkP(BLACK, ROOK) && !board.isAttacked(s88(7,5), WHITE) && !board.isAttacked(s88(7,6), WHITE))
+            mv.push(mkM(kingSq, s88(7,6), 0, 0, FL_C));
+          if((board.cas & CBQ) && !board.brd[s88(7,3)] && !board.brd[s88(7,2)] && !board.brd[s88(7,1)] && board.brd[s88(7,0)] === mkP(BLACK, ROOK) && !board.isAttacked(s88(7,3), WHITE) && !board.isAttacked(s88(7,2), WHITE))
+            mv.push(mkM(kingSq, s88(7,2), 0, 0, FL_C));
+        }
       }
     }
     
