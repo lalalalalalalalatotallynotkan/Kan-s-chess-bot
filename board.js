@@ -22,50 +22,7 @@ class Board {
     this.hKey = 0;
     this.CM = new Array(128).fill(15);
     this.pieceCount = [0, 0];
-    
-    // === PIECE LISTS (Like Stockfish) ===
-    // Track piece positions directly instead of scanning 128-element array
-    // Format: pieceList[color][pieceType] = array of square indices
-    this.pieceList = [
-      [[], [], [], [], [], [], []],  // WHITE: EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
-      [[], [], [], [], [], [], []]   // BLACK: EMPTY, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING
-    ];
-    
     this.initCastleMask();
-  }
-
-  // === PIECE LIST MANAGEMENT (Stockfish-style) ===
-  // Rebuild piece lists from current board state
-  rebuildPieceLists(){
-    // Clear all piece lists
-    for(let c = 0; c < 2; c++){
-      for(let t = 0; t < 7; t++){
-        this.pieceList[c][t].length = 0;  // Fast clear
-      }
-    }
-    // Scan board and populate piece lists - only 32 pieces max!
-    for(let sq = 0; sq < 128; sq++){
-      if(!onB(sq)) continue;
-      const p = this.brd[sq];
-      if(!p) continue;
-      const c = pC(p);
-      const t = pT(p);
-      this.pieceList[c][t].push(sq);
-    }
-  }
-
-  addPiece(sq, piece){
-    const c = pC(piece);
-    const t = pT(piece);
-    this.pieceList[c][t].push(sq);
-  }
-
-  removePiece(sq, piece){
-    const c = pC(piece);
-    const t = pT(piece);
-    const list = this.pieceList[c][t];
-    const idx = list.indexOf(sq);
-    if(idx !== -1) list.splice(idx, 1);
   }
 
   initCastleMask(){
@@ -97,9 +54,6 @@ class Board {
     this.hKey = compH(this.brd, this.sd, this.cas, this.epSq);
     
     this.pieceCount = [16, 16];
-    
-    // === REBUILD PIECE LISTS ===
-    this.rebuildPieceLists();
   }
 
   loadFEN(fenStr){
@@ -158,9 +112,6 @@ class Board {
     }
     this.sStk = [];
     this.hKey = compH(this.brd, this.sd, this.cas, this.epSq);
-    
-    // === REBUILD PIECE LISTS ===
-    this.rebuildPieceLists();
   }
 
   doMove(m){
