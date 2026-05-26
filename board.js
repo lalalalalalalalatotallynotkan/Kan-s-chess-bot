@@ -53,7 +53,7 @@ class Board {
     this.sStk = [];
     this.hKey = compH(this.brd, this.sd, this.cas, this.epSq);
     
-    this.pieceCount = [16, 16];
+    this.pieceCount = [8, 8];
   }
 
   loadFEN(fenStr){
