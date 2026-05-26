@@ -126,7 +126,7 @@ var contemptFactor = 20;
 
 const PCHARS = ['', '♟', '♞', '♝', '♜', '♛', '♚', '', '', '♙', '♘', '♗', '♖', '♕', '♔'];
 const PCNAMES = ['', 'P', 'N', 'B', 'R', 'Q', 'K'];
-const PCHARSl = ['', 'P', 'K', 'B', 'R', 'Q', 'K', '', '', 'p', 'n', 'b', 'r', 'q', 'k'];
+const PCHARSl = ['', 'P', 'N', 'B', 'R', 'Q', 'K', '', '', 'p', 'n', 'b', 'r', 'q', 'k'];
 
 
 let zPc = [], zSd = 0, zCs = new Array(16), zEp = new Array(8);

@@ -163,7 +163,7 @@ class Board {
     this.rebuildPieceLists();
   }
 
-doMove(m){
+  doMove(m){
     const f = mF(m), t = mT(m), cap = mC(m), prom = mP(m), flag = mFL(m), pc = this.brd[f];
     
     this.sStk.push({cas: this.cas, ep: this.epSq, hmc: this.hmc, hKey: this.hKey, pc, pc0: this.pieceCount[0], pc1: this.pieceCount[1]});
@@ -185,14 +185,13 @@ doMove(m){
     }
     else if(prom){
       this.brd[t] = prom;
-      this.pieceCount[this.sd]++;
     }
     else{
       this.brd[t] = pc;
     }
     
-    
-    if(cap && pT(cap) !== PAWN){
+    // CRITICAL FIX: Handle ALL captures (including pawns)
+    if(cap){
       this.pieceCount[this.sd ^ 1]--;
     }
     

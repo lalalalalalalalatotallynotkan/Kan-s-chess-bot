@@ -173,115 +173,81 @@ class Evaluation {
         if(r > maxRank[c][f2]) maxRank[c][f2] = r;
       }
       
-      // Track pieces for later
+      // Track pieces for activity
       pieces[c].push({sq, type: ty, file: f2, rank: r});
     }
     
-    // === PAWN STRUCTURE EVALUATION ===
-    let wPawns = 0, bPawns = 0;
-    for (let c = 0; c < 2; c++) {
-      let pawnScore = 0;
-      const oppIdx = c ^ 1;
-      
-      for (let f = 0; f < 8; f++) {
-        const filePawns = pawns[c][f];
-        if (!filePawns.length) continue;
-        
-        // Doubled pawns
-        if (filePawns.length > 1) pawnScore -= 25 * (filePawns.length - 1);
-        
-        for (let i = 0; i < filePawns.length; i++) {
-          const r = filePawns[i];
+    // === PAWN STRUCTURE (skip in opening for speed) ===
+    let pawnBonus = 0;
+    const totalMat = board.pieceCount[0] + board.pieceCount[1];
+    if(totalMat < 28){  // Only in mid/endgame
+      const opp = [BLACK, WHITE];  
+      for (let c = 0; c < 2; c++) {
+        const oppIdx = opp[c];
+        for (let f = 0; f < 8; f++) {
+          const filePawns = pawns[c][f];
+          if (!filePawns.length) continue;
           
-          // Isolated pawns
-          let hasSupport = false;
-          if (f > 0 && pawns[c][f - 1].length > 0) hasSupport = true;
-          if (f < 7 && pawns[c][f + 1].length > 0) hasSupport = true;
+          // Doubled pawns penalty
+          if (filePawns.length > 1) pawnBonus += (c === WHITE ? 1 : -1) * (-25);
           
-          if (!hasSupport) {
-            pawnScore -= 20;
-          } else {
-            pawnScore += 5; // Supported pawns
-          }
-          
-          // Passed pawns
-          let isPassed = true;
-          for (let ofile = Math.max(0, f - 1); ofile <= Math.min(7, f + 1); ofile++) {
-            if ((oppIdx === WHITE && minRank[oppIdx][ofile] < r) ||
-                (oppIdx === BLACK && maxRank[oppIdx][ofile] > r)) {
-              isPassed = false;
-              break;
+          for (let i = 0; i < filePawns.length; i++) {
+            const r = filePawns[i];
+            
+            // Passed pawns bonus
+            let isPassed = true;
+            for (let ofile = Math.max(0, f - 1); ofile <= Math.min(7, f + 1); ofile++) {
+              if ((oppIdx === WHITE && minRank[oppIdx][ofile] < r) ||
+                  (oppIdx === BLACK && maxRank[oppIdx][ofile] > r)) {
+                isPassed = false;
+                break;
+              }
             }
-          }
-          
-          if (isPassed) {
-            const advancement = c === WHITE ? 7 - r : r;
-            pawnScore += 30 + advancement * 8;
+            
+            if (isPassed) {
+              const advancement = c === WHITE ? 7 - r : r;
+              pawnBonus += (c === WHITE ? 1 : -1) * (30 + advancement * 8);
+            }
           }
         }
       }
-      
-      if (c === WHITE) wPawns = pawnScore;
-      else bPawns = pawnScore;
     }
     
-    // === PIECE ACTIVITY ===
-    let wActivity = 0, bActivity = 0;
-    let bishops = [0, 0];
-    
+    // === PIECE ACTIVITY (fast version) ===
+    let activity = 0;
     for (let c = 0; c < 2; c++) {
-      let act = 0;
-      const oppIdx = c ^ 1;
-      const oppKSq = board.kSq[oppIdx];
+      const sgn = c === WHITE ? 1 : -1;
+      const oppKSq = board.kSq[c ^ 1];
       const oppKFile = fl(oppKSq);
       const oppKRank = rk(oppKSq);
       
       for (const piece of pieces[c]) {
         const ty = piece.type;
-        const f = piece.file;
-        const r = piece.rank;
+        if(ty === KING) continue;
         
-        // Centralization bonus
-        if (f >= 2 && f <= 5 && r >= 2 && r <= 5) act += 5;
-        
-        // Tropism bonus (pieces near enemy king)
-        const fileDist = Math.abs(f - oppKFile);
-        const rankDist = Math.abs(r - oppKRank);
-        const dist = Math.max(fileDist, rankDist);
-        if (dist <= 3) {
-          act += 5 + (3 - dist) * 2;
+        // Centralization
+        if (piece.file >= 2 && piece.file <= 5 && piece.rank >= 2 && piece.rank <= 5) {
+          activity += sgn * 5;
         }
         
-        // Type-specific bonuses
-        if (ty === BISHOP) bishops[c]++;
-        if (ty === ROOK) {
-          const seventh = c === WHITE ? 1 : 6;
-          if (r === seventh) act += 20;
+        // Tropism (distance to enemy king)
+        const dist = Math.max(Math.abs(piece.file - oppKFile), Math.abs(piece.rank - oppKRank));
+        if (dist <= 3) {
+          activity += sgn * (5 + (3 - dist) * 2);
         }
       }
-      
-      if (bishops[c] === 2) act += 50;
-      if (c === WHITE) wActivity = act;
-      else bActivity = act;
     }
     
     // === FINAL CALCULATION ===
-    let s = mg;
-    const mgBonus = wActivity - bActivity + (wPawns - bPawns) * 0.3;
-    s += mgBonus;
-    
     ph = Math.min(ph, 24);
-    s = Math.round((mg * ph + eg * (24 - ph)) / 24);
+    let s = Math.round((mg * ph + eg * (24 - ph)) / 24);
     
-    const mobility = this.calcMobility(board);
-    s += (mobility[WHITE] - mobility[BLACK]) * 0.5;
-    s += this.calcSpace(board) * 0.3;
-    s += this.calcCoordination(board);
+    s += pawnBonus;
+    s += activity;
     s += this.calcThreats(board) * 0.2;
     
     // Tempo bonus in endgame
-    const totalMaterial = board.pieceCount[0] + board.pieceCount[1];
-    if (totalMaterial < 200) {
+    if (totalMat < 200) {
       const tempoBonus = 10;
       if (board.sd === WHITE) {
         s += tempoBonus;
@@ -290,72 +256,31 @@ class Evaluation {
       }
     }
     
-    // Opening heuristic
-    if (board.pieceCount[WHITE] + board.pieceCount[BLACK] >= 30) {
+    // Opening heuristic  
+    if (totalMat >= 30) {
       let openingBonus = 0;
-      if (board.brd[s88(3, 4)] === mkP(WHITE, PAWN)) openingBonus += 35; // e4
-      if (board.brd[s88(3, 3)] === mkP(WHITE, PAWN)) openingBonus += 30; // d4
-      if (board.brd[s88(4, 4)] === mkP(BLACK, PAWN)) openingBonus -= 35; // e5
-      if (board.brd[s88(4, 3)] === mkP(BLACK, PAWN)) openingBonus -= 30; // d5
+      if (board.brd[s88(3, 4)] === mkP(WHITE, PAWN)) openingBonus += 35;
+      if (board.brd[s88(3, 3)] === mkP(WHITE, PAWN)) openingBonus += 30;
+      if (board.brd[s88(4, 4)] === mkP(BLACK, PAWN)) openingBonus -= 35;
+      if (board.brd[s88(4, 3)] === mkP(BLACK, PAWN)) openingBonus -= 30;
       s += openingBonus;
     }
     
     return board.sd === WHITE ? s : -s;
   }
 
-  static calcMobility(board) {
-    const mob = [0, 0];
-    for (let c = 0; c < 2; c++) {
-      const moves = MoveGen.genMoves(board, true);
-      for (const m of moves) {
-        if (pC(board.brd[mF(m)]) === c) mob[c]++;
-      }
-    }
-    return mob;
+  calcMobility(board) {
+    // REMOVED: This was broken and expensive
+    return [0, 0];
   }
 
   static calcSpace(board) {
-    let space = [0, 0];
-    for (let sq = 0; sq < 128; sq++) {
-      if (!onB(sq)) continue;
-      const p = board.brd[sq];
-      if (!p) continue;
-      const c = pC(p);
-      const ty = pT(p);
-      if (ty !== PAWN && ty !== KING) {
-        const f = fl(sq);
-        const r = rk(sq);
-        if (f >= 2 && f <= 5 && r >= 2 && r <= 5) {
-          space[c] += 2;
-        }
-      }
-    }
-    return space[WHITE] - space[BLACK];
+    // REMOVED: Not worth the cost
+    return 0;
   }
 
   static calcCoordination(board) {
-    let coord = 0;
-    for (let c = 0; c < 2; c++) {
-      for (let sq = 0; sq < 128; sq++) {
-        if (!onB(sq)) continue;
-        const p = board.brd[sq];
-        if (!p || pC(p) !== c) continue;
-        const ty = pT(p);
-        
-        if (ty === ROOK || ty === QUEEN) {
-          // Rooks on open files
-          let isOpenFile = true;
-          for (let r = 0; r < 8; r++) {
-            const checkSq = s88(r, fl(sq));
-            if (onB(checkSq) && board.brd[checkSq] && pT(board.brd[checkSq]) === PAWN) {
-              isOpenFile = false;
-              break;
-            }
-          }
-          if (isOpenFile) coord += (c === WHITE ? 1 : -1) * 5;
-        }
-      }
-    }
-    return coord;
+    // REMOVED: Not worth the cost
+    return 0;
   }
 }
