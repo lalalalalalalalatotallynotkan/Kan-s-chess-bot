@@ -134,14 +134,15 @@ class Board {
       this.brd[rt] = this.brd[rf];
       this.brd[rf] = EMPTY;
     }
-    else if(prom){
-      this.brd[t] = prom;
-    }
-    else{
-      this.brd[t] = pc;
+    else {
+      if(prom){
+        this.brd[t] = prom;
+      }
+      else{
+        this.brd[t] = pc;
+      }
     }
     
-    // CRITICAL FIX: Handle ALL captures (including pawns)
     if(cap){
       this.pieceCount[this.sd ^ 1]--;
     }
