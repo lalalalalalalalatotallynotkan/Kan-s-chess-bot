@@ -14,13 +14,13 @@ class Evaluation {
     const ksq = board.kSq[color];
     const f = fl(ksq);
     const r = rk(ksq);
-    const forward = color === WHITE ? -1 : 1;
+    const forward = color === WHITE ? 1 : -1;
     let safety = 0;
     
     for (let df = -1; df <= 1; df++) {
       const sf = f + df;
-      if (sf >= 0 && sf <= 7) {
-        const shieldSq = s88(r + forward, sf);
+      const shieldSq = s88(r + forward, sf);
+      if (sf >= 0 && sf <= 7 && onB(shieldSq)) {
         const p = board.brd[shieldSq];
         if (p && pT(p) === PAWN && pC(p) === color) {
           safety += 15;
@@ -289,18 +289,20 @@ class Evaluation {
         
         // Knight on outpost (can't be attacked by enemy pawns)
         if (ty === KNIGHT && totalMat < 25) {
-          const isOutpost = true;
-          // Check if attacked by enemy pawns
+          let attackedByPawn = false;
           const pawnAttackDir = c === WHITE ? -16 : 16;
           for (const offset of [-1, 1]) {
             const pawnSq = piece.sq + pawnAttackDir + offset;
             if (pawnSq >= 0 && pawnSq < 128 && (pawnSq & 0x88) === 0) {
               const p = board.brd[pawnSq];
               if (p && pT(p) === PAWN && pC(p) === (c ^ 1)) {
-                // Outpost exists: not attacked by pawns
-                activity += sgn * 15;
+                attackedByPawn = true;
+                break;
               }
             }
+          }
+          if (!attackedByPawn) {
+            activity += sgn * 15;
           }
         }
         
@@ -369,6 +371,21 @@ class Evaluation {
       if (board.brd[s88(4, 4)] === mkP(BLACK, PAWN)) openingBonus -= 35;
       if (board.brd[s88(4, 3)] === mkP(BLACK, PAWN)) openingBonus -= 30;
       s += openingBonus;
+    }
+
+    // Central control bonus for opening/middlegame
+    if (totalMat >= 18) {
+      const centerSquares = [s88(3, 4), s88(4, 4), s88(3, 3), s88(4, 3)];
+      for (const sq of centerSquares) {
+        const p = board.brd[sq];
+        if (!p) continue;
+        const colorSign = pC(p) === WHITE ? 1 : -1;
+        const type = pT(p);
+        if (type === PAWN) s += colorSign * 18;
+        else if (type === KNIGHT) s += colorSign * 10;
+        else if (type === BISHOP || type === ROOK) s += colorSign * 6;
+        else if (type === QUEEN) s += colorSign * 4;
+      }
     }
     
     return board.sd === WHITE ? s : -s;

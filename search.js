@@ -1,20 +1,12 @@
 
 
-
-
-
-
-
-
-
-
-
-
 class Search {
   constructor(){
 	// Increase TT size from 2^17 to 2^20 (8x larger = ~1M entries)
 	this.tt = new Array(1 << 20);  
 	this.ttMask = (1 << 20) - 1;
+    // Generation counter to prefer recent entries during replacement
+    this.ttGen = 0;
 	this.killers = Array.from({length: MX_PLY}, () => [0, 0]);
 	
 	// History heuristic for move ordering (larger table for better distribution)
@@ -320,14 +312,12 @@ class Search {
   }
 
   staticEval(board){
-    // === FIX 3: ADD | 0 HERE ===
-    const idx = (board.hKey | 0) & this.evalMask;
-    if(this.evalCacheKeys[idx] === board.hKey) return this.evalCacheVals[idx];
-    // ...
-	const s = Evaluation.evaluate(board);
-	this.evalCacheKeys[idx] = board.hKey;
-	this.evalCacheVals[idx] = s;
-	return s;
+		const idx = (board.hKey | 0) & this.evalMask;
+		if (this.evalCacheKeys[idx] === board.hKey) return this.evalCacheVals[idx] | 0;
+		const s = Evaluation.evaluate(board) | 0;
+		this.evalCacheKeys[idx] = board.hKey;
+		this.evalCacheVals[idx] = s;
+		return s;
   }
 
   pushHash(hash){
@@ -381,6 +371,16 @@ class Search {
 	if(prev){
 	  const prevIdx = this.mvIdx(prev);
 	  if(m === this.counterMoves[board.sd][prevIdx]) score += 80000;
+	}
+
+	// Opening/development bonus for central pawn pushes and knight development
+	if(!cap && !prom){
+	  const to = mT(m);
+	  const p = pT(board.brd[mF(m)]);
+	  const centerPawnTargets = [s88(3,4), s88(4,4), s88(3,3), s88(4,3)];
+	  const knightDevelopment = [s88(2,2), s88(5,2), s88(2,5), s88(5,5)];
+	  if(p === PAWN && centerPawnTargets.includes(to)) score += 150000;
+	  if(p === KNIGHT && knightDevelopment.includes(to)) score += 120000;
 	}
 	
 	return score;
@@ -439,8 +439,8 @@ class Search {
       return this.ttProbeResult;
     }
     
-    const m = e.m;
-    if(e.d >= d){
+	const m = e.m;
+		if(e.d >= d){
       let s = e.s;
       
       // 2. Reverse the mate score adjustment done in ttStore 
@@ -472,7 +472,7 @@ class Search {
         this.ttProbeResult.m = m;
         return this.ttProbeResult;
       }
-    }
+	}
     
     this.ttMisses++;
     this.ttProbeResult.v = false;
@@ -490,37 +490,45 @@ class Search {
     if(sc > MATE - MX_PLY) sc += this.ply;
     else if(sc < -MATE + MX_PLY) sc -= this.ply;
     
-    const oldEntry = this.tt[i];
-    if(!oldEntry){
-      this.tt[i] = {h: board.hKey, d, s: sc, f, m};
-    } else if(oldEntry.h === board.hKey){
-      // If updating the same position, favor EXACT flags or overwrite bounds
-      if(f === 0 || oldEntry.f !== 0){
-        this.tt[i] = {h: board.hKey, d, s: sc, f, m};
-      }
-    } else {
-      // Stockfish-style replacement: favor depth with aging
-      // Always replace if significantly shallower AND we have useful info
-      // Otherwise use depth-preferred replacement
-      const depthDiff = d - oldEntry.d;
-      const isExact = f === 0;  // New entry is exact
-      const oldIsExact = oldEntry.f === 0;  // Old entry is exact
-      
-      // Replace if: new is much deeper, new is exact and old is not, or old is very shallow
-      if(depthDiff >= 3 || (isExact && !oldIsExact) || oldEntry.d <= 2){
-        this.tt[i] = {h: board.hKey, d, s: sc, f, m};
-      }
-      // Otherwise keep old entry if it's deeper
-      else if(d < oldEntry.d){
-        // Keep old entry unless new one is exact and closer to root
-        if(isExact && oldEntry.d <= d + 2){
-          this.tt[i] = {h: board.hKey, d, s: sc, f, m};
-        }
-      } else {
-        // Same or greater depth: always replace
-        this.tt[i] = {h: board.hKey, d, s: sc, f, m};
-      }
-    }
+		const oldEntry = this.tt[i];
+		if(!oldEntry){
+			this.tt[i] = {h: board.hKey, d, s: sc, f, m, g: this.ttGen};
+		} else if(oldEntry.h === board.hKey){
+			// If updating the same position, favor EXACT flags or overwrite bounds
+			if(f === 0 || oldEntry.f !== 0){
+				this.tt[i] = {h: board.hKey, d, s: sc, f, m, g: this.ttGen};
+			}
+		} else {
+			// Replacement policy enhanced with generation awareness
+			// Prefer replacing older-generation entries when depths are similar
+			const depthDiff = d - oldEntry.d;
+			const isExact = f === 0;
+			const oldIsExact = oldEntry.f === 0;
+
+			// If new entry is exact and old is not, prefer new
+			if(isExact && !oldIsExact){
+				this.tt[i] = {h: board.hKey, d, s: sc, f, m, g: this.ttGen};
+				return;
+			}
+
+			// Replace if new is much deeper
+			if(depthDiff >= 3) {
+				this.tt[i] = {h: board.hKey, d, s: sc, f, m, g: this.ttGen};
+				return;
+			}
+
+			// If old entry is from an older generation and depths are comparable, replace it
+			if((oldEntry.g || 0) < this.ttGen && d >= oldEntry.d){
+				this.tt[i] = {h: board.hKey, d, s: sc, f, m, g: this.ttGen};
+				return;
+			}
+
+			// Favor deeper or same-depth overwrites
+			if(d >= oldEntry.d){
+				this.tt[i] = {h: board.hKey, d, s: sc, f, m, g: this.ttGen};
+			}
+			// Otherwise keep old entry
+		}
   }
   quiesce(board, a, b){
 	this.nCnt++;
@@ -630,10 +638,8 @@ class Search {
 	}
 	
 	// === TRANSPOSITION CUTOFF ===
-	// If no TT move and deep search, reduce depth (internal iterative deepening)
-	if(!ttm && depth >= 4){
-	  depth--;
-	}
+	// Do not reduce search depth when no TT move exists.
+	// Internal iterative deepening should be a separate process.
 	
 	
 	
@@ -963,6 +969,8 @@ class Search {
 	const initialSd = board.sd;
 	
 	for(let d = 1; d <= 64; d++){
+	  // Bump transposition table generation to prefer recent entries
+	  this.ttGen = (this.ttGen + 1) & 0x7fffffff;
 	  this.ply = 0;
 	  this.hHist = [];
 	  this.moveStack = [];
