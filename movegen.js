@@ -56,8 +56,10 @@ class MoveGen {
               mv.push(mkM(sq, t, cap, 0, FL_N));
             }
           }
-          if(t === board.epSq)
-            mv.push(mkM(sq, t, mkP(th, PAWN), 0, FL_E));
+          if(t === board.epSq){
+            const epPawn = board.brd[board.sd === WHITE ? t - 16 : t + 16];
+            mv.push(mkM(sq, t, epPawn, 0, FL_E));
+          }
         }
       }
       else if(ty === KNIGHT){

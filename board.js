@@ -69,18 +69,6 @@ class Board {
     if(castStr.includes('k')) this.cas |= CBK;
     if(castStr.includes('q')) this.cas |= CBQ;
     this.epSq = parts[3] === '-' ? -1 : ((parseInt(parts[3][1]) - 1) << 4) | (parts[3].charCodeAt(0) - 97);
-    
-    if(this.epSq !== -1){
-      const epRank = rk(this.epSq);
-      const epFile = fl(this.epSq);
-      const pushDir = this.sd === WHITE ? -16 : 16;
-      const pawnPos = this.epSq + pushDir;
-      const capturePos = this.epSq - pushDir * 2;
-      
-      if(!onB(pawnPos) || !onB(capturePos) || this.brd[capturePos] !== 0 || this.brd[pawnPos] !== mkP(opp, PAWN)){
-        this.epSq = -1; 
-      }
-    }
     this.hmc = parseInt(parts[4]) || 0;
     
     let r = 7, f = 0;
@@ -111,11 +99,42 @@ class Board {
       }
     }
     this.sStk = [];
+    if(this.epSq !== -1){
+      const pushDir = this.sd === WHITE ? -16 : 16;
+      const pawnPos = this.epSq + pushDir;
+      if(!onB(this.epSq) || !onB(pawnPos) || this.brd[this.epSq] !== 0 || this.brd[pawnPos] !== mkP(opp, PAWN)){
+        this.epSq = -1;
+      }
+    }
     this.hKey = compH(this.brd, this.sd, this.cas, this.epSq);
   }
 
   doMove(m){
     const f = mF(m), t = mT(m), cap = mC(m), prom = mP(m), flag = mFL(m), pc = this.brd[f];
+    
+    // SAFETY CHECK: Ensure piece being moved belongs to the side to move
+    if(!pc || pC(pc) !== this.sd){
+      console.error(`❌ ILLEGAL MOVE: Piece at ${f} doesn't belong to side ${this.sd}. Piece: ${pc}`);
+      return false;
+    }
+    
+    // SAFETY CHECK: If there's a capture, verify the piece being captured is present
+    if(cap){
+      if(flag === FL_E){
+        const es = this.sd === WHITE ? t - 16 : t + 16;
+        const targetPiece = this.brd[es];
+        if(targetPiece !== cap){
+          console.error(`❌ ILLEGAL EN PASSANT CAPTURE: Expected ${cap} at ${es}, but found ${targetPiece}`);
+          return false;
+        }
+      } else {
+        const targetPiece = this.brd[t];
+        if(targetPiece !== cap){
+          console.error(`❌ ILLEGAL CAPTURE: Expected piece ${cap} at ${t}, but found ${targetPiece}`);
+          return false;
+        }
+      }
+    }
     
     this.sStk.push({cas: this.cas, ep: this.epSq, hmc: this.hmc, hKey: this.hKey, pc, pc0: this.pieceCount[0], pc1: this.pieceCount[1]});
     
@@ -137,13 +156,14 @@ class Board {
     else {
       if(prom){
         this.brd[t] = prom;
+        if(pT(prom) !== PAWN) this.pieceCount[this.sd]++;
       }
       else{
         this.brd[t] = pc;
       }
     }
     
-    if(cap){
+    if(cap && pT(cap) !== PAWN){
       this.pieceCount[this.sd ^ 1]--;
     }
     
@@ -156,7 +176,12 @@ class Board {
     this.sd ^= 1;
     this.hKey = compH(this.brd, this.sd, this.cas, this.epSq);
     
-    return !this.isAttacked(this.kSq[this.sd ^ 1], this.sd);
+    const ok = !this.isAttacked(this.kSq[this.sd ^ 1], this.sd);
+    if(!ok){
+      this.undoMove(m);
+      return false;
+    }
+    return true;
   }
 
   undoMove(m){

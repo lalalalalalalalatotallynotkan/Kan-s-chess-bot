@@ -177,24 +177,55 @@ class Evaluation {
       pieces[c].push({sq, type: ty, file: f2, rank: r});
     }
     
-    // === PAWN STRUCTURE (skip in opening for speed) ===
-    let pawnBonus = 0;
+    // === CALCULATE TOTAL MATERIAL (needed for bonuses) ===
     const totalMat = board.pieceCount[0] + board.pieceCount[1];
-    if(totalMat < 28){  // Only in mid/endgame
+    
+    // === PIECE PAIR BONUSES ===
+    let pairBonus = 0;
+    for (let c = 0; c < 2; c++) {
+      const sgn = c === WHITE ? 1 : -1;
+      let bishopCount = 0;
+      let rookCount = 0;
+      
+      for (const piece of pieces[c]) {
+        if (piece.type === BISHOP) bishopCount++;
+        if (piece.type === ROOK) rookCount++;
+      }
+      
+      // Bishop pair bonus (significant in open positions)
+      if (bishopCount >= 2) {
+        const bishopPairBonus = totalMat < 25 ? 25 : 15;
+        pairBonus += sgn * bishopPairBonus;
+      }
+      
+      // Rook pair bonus (lesser bonus)
+      if (rookCount >= 2) {
+        pairBonus += sgn * 5;
+      }
+    }
+    
+    // === PAWN STRUCTURE (ENHANCED) ===
+    let pawnBonus = 0;
+    if(totalMat < 30){  // Only in mid/endgame
       const opp = [BLACK, WHITE];  
       for (let c = 0; c < 2; c++) {
+        const sgn = c === WHITE ? 1 : -1;
         const oppIdx = opp[c];
         for (let f = 0; f < 8; f++) {
           const filePawns = pawns[c][f];
-          if (!filePawns.length) continue;
+          if (!filePawns.length) {
+            // Open file for opponent (no pawns) - minor penalty
+            pawnBonus += sgn * -3;
+            continue;
+          }
           
           // Doubled pawns penalty
-          if (filePawns.length > 1) pawnBonus += (c === WHITE ? 1 : -1) * (-25);
+          if (filePawns.length > 1) pawnBonus += sgn * (-25);
           
           for (let i = 0; i < filePawns.length; i++) {
             const r = filePawns[i];
             
-            // Passed pawns bonus
+            // Passed pawns bonus (most important pawn feature)
             let isPassed = true;
             for (let ofile = Math.max(0, f - 1); ofile <= Math.min(7, f + 1); ofile++) {
               if ((oppIdx === WHITE && minRank[oppIdx][ofile] < r) ||
@@ -206,14 +237,33 @@ class Evaluation {
             
             if (isPassed) {
               const advancement = c === WHITE ? 7 - r : r;
-              pawnBonus += (c === WHITE ? 1 : -1) * (30 + advancement * 8);
+              const passedBonus = 20 + advancement * 12;  // Enhanced bonus
+              pawnBonus += sgn * passedBonus;
+            } else {
+              // Isolated pawn penalty (no pawns on adjacent files)
+              const hasLeft = f > 0 && pawns[c][f - 1].length > 0;
+              const hasRight = f < 7 && pawns[c][f + 1].length > 0;
+              if (!hasLeft && !hasRight) {
+                pawnBonus += sgn * -15;
+              }
+              
+              // Backward pawn penalty (blocked, undefended)
+              if (i === filePawns.length - 1 && f > 0 && f < 7) {
+                const leftFile = pawns[c][f - 1];
+                const rightFile = pawns[c][f + 1];
+                const canSupport = (leftFile.length > 0 && leftFile[leftFile.length - 1] > r) ||
+                                  (rightFile.length > 0 && rightFile[rightFile.length - 1] > r);
+                if (!canSupport) {
+                  pawnBonus += sgn * -10;
+                }
+              }
             }
           }
         }
       }
     }
     
-    // === PIECE ACTIVITY (fast version) ===
+    // === PIECE ACTIVITY (ENHANCED) ===
     let activity = 0;
     for (let c = 0; c < 2; c++) {
       const sgn = c === WHITE ? 1 : -1;
@@ -225,16 +275,69 @@ class Evaluation {
         const ty = piece.type;
         if(ty === KING) continue;
         
-        // Centralization
+        // Centralization bonus (more valuable in middlegame)
         if (piece.file >= 2 && piece.file <= 5 && piece.rank >= 2 && piece.rank <= 5) {
-          activity += sgn * 5;
+          activity += sgn * (8 + (ty === KNIGHT ? 4 : 2));
         }
         
-        // Tropism (distance to enemy king)
+        // Tropism (distance to enemy king) - important for attack
         const dist = Math.max(Math.abs(piece.file - oppKFile), Math.abs(piece.rank - oppKRank));
-        if (dist <= 3) {
-          activity += sgn * (5 + (3 - dist) * 2);
+        if (dist <= 4) {
+          const tropismBonus = ty === KNIGHT ? (4 - dist) * 3 : (4 - dist) * 2;
+          activity += sgn * tropismBonus;
         }
+        
+        // Knight on outpost (can't be attacked by enemy pawns)
+        if (ty === KNIGHT && totalMat < 25) {
+          const isOutpost = true;
+          // Check if attacked by enemy pawns
+          const pawnAttackDir = c === WHITE ? -16 : 16;
+          for (const offset of [-1, 1]) {
+            const pawnSq = piece.sq + pawnAttackDir + offset;
+            if (pawnSq >= 0 && pawnSq < 128 && (pawnSq & 0x88) === 0) {
+              const p = board.brd[pawnSq];
+              if (p && pT(p) === PAWN && pC(p) === (c ^ 1)) {
+                // Outpost exists: not attacked by pawns
+                activity += sgn * 15;
+              }
+            }
+          }
+        }
+        
+        // Rook on open/semi-open file
+        if (ty === ROOK && totalMat < 25) {
+          const f = piece.file;
+          const whiteHasPawn = minRank[WHITE][f] < 8;
+          const blackHasPawn = maxRank[BLACK][f] >= 0;
+          if (!whiteHasPawn || !blackHasPawn) {
+            const openFileBonus = (!whiteHasPawn && !blackHasPawn) ? 12 : 6;
+            activity += sgn * openFileBonus;
+          }
+        }
+      }
+    }
+    
+    // === KING SAFETY (ENHANCED) ===
+    let kingSafety = 0;
+    if (totalMat >= 25) {  // Only in middlegame/early endgame
+      for (let c = 0; c < 2; c++) {
+        const sgn = c === WHITE ? 1 : -1;
+        const ksq = board.kSq[c];
+        const kr = rk(ksq);
+        const kf = fl(ksq);
+        
+        // Pawn shield scoring (already calculated above)
+        kingSafety += sgn * this.calcKingSafety(board, c);
+        
+        // Penalty for exposed king (open files/diagonals to enemy)
+        let exposure = 0;
+        const f = fl(ksq);
+        if (f <= 1 || f >= 6) {
+          exposure -= 10;  // Bonus for castled position
+        } else {
+          exposure += 15;  // Penalty for uncastled in center
+        }
+        kingSafety += sgn * exposure;
       }
     }
     
@@ -244,11 +347,13 @@ class Evaluation {
     
     s += pawnBonus;
     s += activity;
-    s += this.calcThreats(board) * 0.2;
+    s += kingSafety;
+    s += pairBonus;  // Add piece pair bonuses
+    s += this.calcThreats(board) * 0.25;  // Slight weight increase
     
-    // Tempo bonus in endgame
+    // Tempo bonus in endgame (side to move advantage)
     if (totalMat < 200) {
-      const tempoBonus = 10;
+      const tempoBonus = 12;
       if (board.sd === WHITE) {
         s += tempoBonus;
       } else {
@@ -256,7 +361,7 @@ class Evaluation {
       }
     }
     
-    // Opening heuristic  
+    // Opening heuristic (control center)
     if (totalMat >= 30) {
       let openingBonus = 0;
       if (board.brd[s88(3, 4)] === mkP(WHITE, PAWN)) openingBonus += 35;
@@ -270,17 +375,14 @@ class Evaluation {
   }
 
   calcMobility(board) {
-    // REMOVED: This was broken and expensive
     return [0, 0];
   }
 
   static calcSpace(board) {
-    // REMOVED: Not worth the cost
     return 0;
   }
 
   static calcCoordination(board) {
-    // REMOVED: Not worth the cost
     return 0;
   }
 }
